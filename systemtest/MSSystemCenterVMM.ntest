@@ -1,0 +1,263 @@
+# -*-Perl-*-
+
+###############################
+# MSSystemCenterVMM.ntest
+#
+# Exercise basic components of EC-MSSystemCenterVMM plugin
+#
+# Copyright (c) 2005-2010 Electric Cloud, Inc.
+# All rights reserved
+###############################
+
+use strict;
+use warnings;
+use ECTest;
+
+initCommander();
+
+$::gPlugin_name   = $::ENV{PLUGIN_NAME};
+$::gPlugin_key    = $::gPlugin_name;
+$::gPlugin_key    =~ s/-[^-]+$//;
+$::gPlugin_driver = $::gPlugin_key;
+$::gPlugin_driver =~ s/-/::/g;
+
+# win/lin matches the chronic3 procedure platform property
+$::gPlatform       = "lin";
+if ($^O eq "MSWin32") {
+    $::gPlatform = "win";
+}
+
+# from initCommander
+$::N = $adminSession;
+my $xpath = $::N->getPlugin($::gPlugin_key);
+$::gPlugin_name = $xpath->findvalue('//pluginName')->value;
+$::gPlugin_ver = $xpath->findvalue('//pluginVersion')->value;
+$::gCreatePrivateDirs = 1;
+
+# triggers fake data
+$::gRunTestUseFakeOutput = 1;
+
+################################
+# check-components-present - Check that the plugin contains required components
+#
+# Arguments:
+#   none
+#
+# Returns:
+#   none
+#
+################################
+ntest "check-components-present", {}, sub {
+    my $xpath;
+    $xpath = $::N->getSteps("$::gPlugin_name","CreateConfiguration");
+    assertOK($xpath,"CreateConfiguration");
+    assertEq("CreateConfiguration", $xpath->findvalue("//step[1]/stepName"), "step 1 is CreateConfiguration");
+    assertEq("CreateAndAttachCredential", $xpath->findvalue("//step[2]/stepName"), "step 2 is CreateAndAttachCredential");
+
+    $xpath = $::N->getSteps("$::gPlugin_name","DeleteConfiguration");
+    assertOK($xpath,"DeleteConfiguration");
+    assertEq("DeleteConfiguration", $xpath->findvalue("//step[1]/stepName"), "step 1 is DeleteConfiguration");
+    
+    $xpath = $::N->getSteps("$::gPlugin_name","PowerOn");
+    assertOK($xpath,"PowerOn");
+    assertEq("PowerOn", $xpath->findvalue("//step[1]/stepName"), "step 1 is PowerOn");
+    
+    $xpath = $::N->getSteps("$::gPlugin_name","Shutdown");
+    assertOK($xpath,"Shutdown");
+    assertEq("Shutdown", $xpath->findvalue("//step[1]/stepName"), "step 1 is Shutdown");
+    
+    $xpath = $::N->getSteps("$::gPlugin_name","Revert");
+    assertOK($xpath,"Revert");
+    assertEq("Revert", $xpath->findvalue("//step[1]/stepName"), "step 1 is Revert");
+    
+    $xpath = $::N->getSteps("$::gPlugin_name","Capture");
+    assertOK($xpath,"Capture");
+    assertEq("Capture", $xpath->findvalue("//step[1]/stepName"), "step 1 is Capture");
+};
+
+################################
+# Eval HyperV Driver - Test loading HyperV driver
+#
+# Arguments:
+#   none
+#
+# Returns:
+#   none
+#
+################################
+ntest "eval HyperV driver", {windowsOnly => 1}, sub {
+    use ElectricCommander::PropMod;
+
+    # Load perl code from running Commander
+    ElectricCommander::PropMod::loadPerlCodeFromProperty($::N,"/projects/$::gPlugin_name/hyperv_driver/HyperV");
+    my $gd = new HyperV();
+};
+
+################################
+# setup-create configuration - Test creating a configuration
+#
+# Arguments:
+#   none
+#
+# Returns:
+#   none
+#
+################################
+ntest "setup-create configuration", {}, sub {
+    my $xpath = $::N->runProcedure("$::gPlugin_name", 
+        { procedureName => "CreateConfiguration",
+          pollInterval  => '0.2',
+          timeout       => 600,
+          actualParameter => [ 
+            { actualParameterName => 'config', value => "test" }, 
+            { actualParameterName => 'hyperv_host', value => "test_host" }, 
+            { actualParameterName => 'credential', value => "test" }, 
+          ],
+          credential => [ 
+            { credentialName => 'test', userName => "qa", password => "qa", },
+          ],
+        });
+
+    assertOK($xpath, "run create configuration procedure");
+    # make sure it finished
+    my $jobId = 0;
+    my $status = "";
+    assertDef($xpath, "runProcedure finished without a timeout");
+    if ($xpath) {
+        $jobId  = $xpath->findvalue("//jobId");
+        $status = $xpath->findvalue("//status");
+
+        assertTrue($jobId && $jobId ne "",'valid job id');
+        assertEq('completed',$status,"job $jobId complete");
+
+        #abort if job did not finish
+        if ($status ne "completed") {
+            assertOK($::N->abortJob($jobId, {force => 1}));
+        }
+    }
+
+    # examine log files
+    $xpath = $::N->getJobDetails($jobId);
+
+    writeFile("$::gCurrentTestDir/createConfiguration.log","====Job Details====\n$xpath->{_xml}\n");
+
+    # check that the config and credential exist
+    $xpath = $::N->getProperty("/projects/$::gPlugin_name/hyperv_cfgs/test/hyperv_host");
+    assertEq("test_host",$xpath->findvalue("//value")->string_value,"server hostname");
+    $xpath = $::N->getCredential("$::gPlugin_name","test");
+    assertEq("qa",$xpath->findvalue("//userName")->string_value, 'Credential user');
+};
+
+################################
+# poweron vm - Power on a virtual machine
+#
+# Arguments:
+#   none
+#
+# Returns:
+#   none
+#
+################################
+ntest "poweron vm", {windowsOnly => 1}, sub {
+    my $opts;
+    $opts->{hyperv_vmname} = "test_vm";
+    
+    my $gd = new HyperV($opts);
+    my $out = $gd->poweron();
+    
+    my $expectedOutput;
+    $expectedOutput .= "Connecting to Hyper-V server...";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Conected";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Powering on virtual machine 'test_vm'...";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Successfully powered on virtual machine 'test_vm'";
+    assertEq($expectedOutput, $out, "output");
+};
+
+################################
+# shutdown vm - Shutdown a virtual machine
+#
+# Arguments:
+#   none
+#
+# Returns:
+#   none
+#
+################################
+ntest "shutdown vm", {windowsOnly => 1}, sub {
+    my $opts;
+    $opts->{hyperv_vmname} = "test_vm";
+    
+    my $gd = new HyperV($opts);
+    my $out = $gd->shutdown();
+    
+    my $expectedOutput;
+    $expectedOutput .= "Connecting to Hyper-V server...";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Conected";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Shutting down virtual machine 'test_vm'...";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Successfully shut down virtual machine 'test_vm'";
+    assertEq($expectedOutput, $out, "output");
+};
+
+################################
+# revert vm - Revert a virtual machine to a snapshot
+#
+# Arguments:
+#   none
+#
+# Returns:
+#   none
+#
+################################
+ntest "revert vm", {windowsOnly => 1}, sub {
+    my $opts;
+    $opts->{hyperv_vmname} = "test_vm";
+    $opts->{hyperv_snapshotname} = "snapshot1";
+    
+    my $gd = new HyperV($opts);
+    my $out = $gd->revert();
+    
+    my $expectedOutput;
+    $expectedOutput .= "Connecting to Hyper-V server...";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Conected";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Reverting virtual machine 'test_vm' to snapshot 'snapshot1'...";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Successfully reverted virtual machine 'test_vm' to snapshot 'snapshot1'";
+    assertEq($expectedOutput, $out, "output");
+};
+
+################################
+# capture vm - Create a snapshot for the specified virtual machine
+#
+# Arguments:
+#   none
+#
+# Returns:
+#   none
+#
+################################
+ntest "capture vm", {windowsOnly => 1}, sub {
+    my $opts;
+    $opts->{hyperv_vmname} = "test_vm";
+    $opts->{hyperv_snapshotname} = "snapshot1";
+    
+    my $gd = new HyperV($opts);
+    my $out = $gd->capture();
+    
+    my $expectedOutput;
+    $expectedOutput .= "Connecting to Hyper-V server...";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Conected";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Creating snapshot 'snapshot1' for virtual machine 'test_vm'...";
+    $expectedOutput .= "\n";
+    $expectedOutput .= "Successfully created snapshot 'snapshot1' for virtual machine 'test_vm'";
+    assertEq($expectedOutput, $out, "output");
+};
