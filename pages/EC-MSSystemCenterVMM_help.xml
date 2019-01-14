@@ -219,6 +219,10 @@
 		<h2>Expected result on Hyper-V</h2><img src="../../plugins/@PLUGIN_KEY@/images/MSSystemCenterVMM-9.png" alt="screenshot" /> 
        
         <h1>Release Notes</h1>
+        <h2>@PLUGIN_KEY@ 2.0.3</h2>
+        <ul>
+            <li>The plugin icon has been updated.</li>
+        </ul>
 	<h2>@PLUGIN_KEY@ 2.0.2</h2>
     <ul>
         <li>Fixed issue with configurations being cached for IE.</li>
