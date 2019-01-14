@@ -6,6 +6,12 @@
     <description>Integration with MSSystemCenterVMM</description>
     <workspaceName></workspaceName>
     <propertySheet>
+      <!-- Improvement for ECPRESOURCEMSSYSTEMCENTERVMM-8 -->
+      <property>
+        <propertyName>ec_icon</propertyName>
+        <value>images/icon-plugin.svg</value>
+      </property>
+      <!-- End of improvement for ECPRESOURCEMSSYSTEMCENTERVMM-8 -->
       <property>
         <propertyName>hyperv_driver</propertyName>
         <description>Home for perl code</description>
